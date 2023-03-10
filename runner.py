@@ -29,56 +29,79 @@ class Runner:
 
     def run(self):
         returns = []
+        r = np.zeros(self.args.n_agents)
+        done = np.zeros(self.args.n_agents, dtype=bool)
         for time_step in tqdm(range(self.args.time_steps)):
-            # reset the environment
-            if time_step % self.episode_limit == 0:
-                s = self.env.reset()
-            u = []
-            actions = []
-            with torch.no_grad():
-                for agent_id, agent in enumerate(self.agents):
-                    action = agent.select_action(s[agent_id], self.noise, self.epsilon)
-                    u.append(action)
-                    actions.append(action)
-            for i in range(self.args.n_agents, self.args.n_players):
-                actions.append([0, np.random.rand() * 2 - 1, 0, np.random.rand() * 2 - 1, 0])
-            s_next, r, done, info = self.env.step(actions)
-            self.buffer.store_episode(s[:self.args.n_agents], u, r[:self.args.n_agents], s_next[:self.args.n_agents])
-            s = s_next
-            if self.buffer.current_size >= self.args.batch_size:
-                transitions = self.buffer.sample(self.args.batch_size)
-                for agent in self.agents:
-                    other_agents = self.agents.copy()
-                    other_agents.remove(agent)
-                    agent.learn(transitions, other_agents)
             if time_step > 0 and time_step % self.args.evaluate_rate == 0:
                 returns.append(self.evaluate())
                 plt.figure()
                 plt.plot(range(len(returns)), returns)
-                plt.xlabel('episode * ' + str(self.args.evaluate_rate / self.episode_limit))
+                plt.xlabel('episode * ' +
+                           str(self.args.evaluate_rate / self.episode_limit))
                 plt.ylabel('average returns')
                 plt.savefig(self.save_path + '/plt.png', format='png')
-            self.noise = max(0.05, self.noise - 0.0000005)
-            self.epsilon = max(0.05, self.epsilon - 0.0000005)
-            np.save(self.save_path + '/returns.pkl', returns)
+
+
+            ## 跑一个回合
+            self.env.reset()
+            s = self.env.state().reshape(self.args.n_agents, -1)
+            while(True):
+                # reset the environment
+                self.env.render_mode = None
+                u = []
+                # actions = []
+                with torch.no_grad():
+                    for agent_id, agent in enumerate(self.agents):
+                        action = agent.select_action(
+                            s[agent_id], self.noise, self.epsilon)
+                        self.env.step(action.astype(np.float32))
+                        # print(self.env.terminations)
+                        # print(self.env.truncations)
+                        u.append(action)
+                        # actions.append(action)
+                # for i in range(self.args.n_agents, self.args.n_players):
+                #     actions.append([0, np.random.rand() * 2 - 1, 0, np.random.rand() * 2 - 1, 0])
+                ###################################################
+                # 获取下一个状态、奖励、是否结束、info
+                for i in range(self.args.n_agents):
+                    r[i] = self.env.rewards[self.env.agents[i]]
+                    done[i] = self.env.truncations[self.env.agents[i]]
+                # s_next, r, done, info = self.env.step(actions)
+                s_next = self.env.state().reshape(self.args.n_agents, -1)
+                ###################################################
+                self.buffer.store_episode(
+                    s[:self.args.n_agents], u, r[:self.args.n_agents], s_next[:self.args.n_agents])
+                s = s_next
+                if self.buffer.current_size >= self.args.batch_size:
+                    transitions = self.buffer.sample(self.args.batch_size)
+                    for agent in self.agents:
+                        other_agents = self.agents.copy()
+                        other_agents.remove(agent)
+                        agent.learn(transitions, other_agents)
+                self.noise = max(0.05, self.noise - 0.0000005)
+                self.epsilon = max(0.05, self.epsilon - 0.0000005)
+                # np.save(self.save_path + '/returns.pkl', returns)
+                if done.any():
+                    break
 
     def evaluate(self):
         returns = []
+        r = np.zeros(self.args.n_agents)
+        self.env.render_mode = "human"
         for episode in range(self.args.evaluate_episodes):
             # reset the environment
-            s = self.env.reset()
+            self.env.reset()
+            s = self.env.state().reshape(self.args.n_agents, -1)
             rewards = 0
             for time_step in range(self.args.evaluate_episode_len):
-                self.env.render()
-                actions = []
                 with torch.no_grad():
                     for agent_id, agent in enumerate(self.agents):
                         action = agent.select_action(s[agent_id], 0, 0)
-                        actions.append(action)
-                for i in range(self.args.n_agents, self.args.n_players):
-                    actions.append([0, np.random.rand() * 2 - 1, 0, np.random.rand() * 2 - 1, 0])
-                s_next, r, done, info = self.env.step(actions)
-                rewards += r[0]
+                        self.env.step(action.astype(np.float32))
+                for i in range(self.args.n_agents):
+                    r[i] = self.env.rewards[self.env.agents[i]]
+                s_next = self.env.state().reshape(self.args.n_agents, -1)
+                rewards += r.sum()
                 s = s_next
             returns.append(rewards)
             print('Returns is', rewards)

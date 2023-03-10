@@ -1,9 +1,9 @@
 from runner import Runner
 from common.arguments import get_args
 from common.utils import make_env
-import numpy as np
-import random
-import torch
+# import numpy as np
+# import random
+# import torch
 
 
 if __name__ == '__main__':
@@ -16,3 +16,4 @@ if __name__ == '__main__':
         print('Average returns is', returns)
     else:
         runner.run()
+    env.close()

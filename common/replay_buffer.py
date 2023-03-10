@@ -10,6 +10,7 @@ class Buffer:
         self.current_size = 0
         # create the buffer to store info
         self.buffer = dict()
+        # 每一个agent都有o u r o_next， 有固定的size * shape
         for i in range(self.args.n_agents):
             self.buffer['o_%d' % i] = np.empty([self.size, self.args.obs_shape[i]])
             self.buffer['u_%d' % i] = np.empty([self.size, self.args.action_shape[i]])
@@ -19,6 +20,7 @@ class Buffer:
         self.lock = threading.Lock()
 
     # store the episode
+    # o u r o_next 需要以二维数组的形式存储
     def store_episode(self, o, u, r, o_next):
         idxs = self._get_storage_idx(inc=1)  # 以transition的形式存，每次只存一条经验
         for i in range(self.args.n_agents):

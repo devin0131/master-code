@@ -7,7 +7,7 @@ import torch.nn.functional as F
 class Actor(nn.Module):
     def __init__(self, args, agent_id):
         super(Actor, self).__init__()
-        self.max_action = args.high_action
+        self.max_action = torch.tensor(args.high_action, dtype=torch.float32)
         self.fc1 = nn.Linear(args.obs_shape[agent_id], 64)
         self.fc2 = nn.Linear(64, 64)
         self.fc3 = nn.Linear(64, 64)
@@ -25,7 +25,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, args):
         super(Critic, self).__init__()
-        self.max_action = args.high_action
+        self.max_action = torch.from_numpy(args.high_action)
         self.fc1 = nn.Linear(sum(args.obs_shape) + sum(args.action_shape), 64)
         self.fc2 = nn.Linear(64, 64)
         self.fc3 = nn.Linear(64, 64)
@@ -34,6 +34,7 @@ class Critic(nn.Module):
     def forward(self, state, action):
         state = torch.cat(state, dim=1)
         for i in range(len(action)):
+            # print(i, type(action[i]), type(self.max_action))
             action[i] /= self.max_action
         action = torch.cat(action, dim=1)
         x = torch.cat([state, action], dim=1)

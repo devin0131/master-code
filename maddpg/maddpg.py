@@ -56,7 +56,7 @@ class MADDPG:
     # update the network
     def train(self, transitions, other_agents):
         for key in transitions.keys():
-            transitions[key] = torch.tensor(transitions[key], dtype=torch.float32)
+            transitions[key] = torch.tensor(transitions[key], dtype=torch.float32).clone().detach()
         r = transitions['r_%d' % self.agent_id]  # 训练时只需要自己的reward
         o, u, o_next = [], [], []  # 用来装每个agent经验中的各项
         for agent_id in range(self.args.n_agents):
