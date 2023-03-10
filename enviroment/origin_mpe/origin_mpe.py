@@ -5,10 +5,10 @@ import numpy as np
 def new_local_reward(self, agent, world):
     idx = int(agent.name[-1])
     rew = -np.linalg.norm(agent.state.p_pos - world.landmarks[idx].state.p_pos)
-    if agent.collide:
-        for a in world.agents:
-            if self.is_collision(a, agent):
-                rew -= 1
+    # if agent.collide:
+    #     for a in world.agents:
+    #         if self.is_collision(a, agent):
+    #             rew -= 1
     return rew
         
 def make_env(args):

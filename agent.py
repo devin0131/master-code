@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 import os
-from maddpg.maddpg import MADDPG
+# from maddpg.maddpg import MADDPG
+from mdmaddpg.maddpg import MADDPG
 
 
 class Agent:
