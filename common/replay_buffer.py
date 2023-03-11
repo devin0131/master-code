@@ -1,5 +1,6 @@
 import threading
 import numpy as np
+import torch
 
 
 class Buffer:
@@ -10,12 +11,20 @@ class Buffer:
         self.current_size = 0
         # create the buffer to store info
         self.buffer = dict()
+        if torch.cuda.is_available():
+            self.device = torch.device(0)
+        else:
+            self.device = torch.device('cpu')
         # 每一个agent都有o u r o_next， 有固定的size * shape
         for i in range(self.args.n_agents):
-            self.buffer['o_%d' % i] = np.empty([self.size, self.args.obs_shape[i]])
-            self.buffer['u_%d' % i] = np.empty([self.size, self.args.action_shape[i]])
-            self.buffer['r_%d' % i] = np.empty([self.size])
-            self.buffer['o_next_%d' % i] = np.empty([self.size, self.args.obs_shape[i]])
+            # self.buffer['o_%d' % i] = np.empty([self.size, self.args.obs_shape[i]])
+            # self.buffer['u_%d' % i] = np.empty([self.size, self.args.action_shape[i]])
+            # self.buffer['r_%d' % i] = np.empty([self.size])
+            # self.buffer['o_next_%d' % i] = np.empty([self.size, self.args.obs_shape[i]])
+            self.buffer['o_%d' % i] = torch.empty([self.size, self.args.obs_shape[i]]).to(self.device)
+            self.buffer['u_%d' % i] = torch.empty([self.size, self.args.action_shape[i]]).to(self.device)
+            self.buffer['r_%d' % i] = torch.empty([self.size]).to(self.device)
+            self.buffer['o_next_%d' % i] = torch.empty([self.size, self.args.obs_shape[i]]).to(self.device)
         # thread lock
         self.lock = threading.Lock()
 
@@ -25,10 +34,10 @@ class Buffer:
         idxs = self._get_storage_idx(inc=1)  # 以transition的形式存，每次只存一条经验
         for i in range(self.args.n_agents):
             with self.lock:
-                self.buffer['o_%d' % i][idxs] = o[i]
-                self.buffer['u_%d' % i][idxs] = u[i]
-                self.buffer['r_%d' % i][idxs] = r[i]
-                self.buffer['o_next_%d' % i][idxs] = o_next[i]
+                self.buffer['o_%d' % i][idxs] = torch.from_numpy(o[i]).to(self.device)
+                self.buffer['u_%d' % i][idxs] = torch.from_numpy(u[i]).to(self.device)
+                self.buffer['r_%d' % i][idxs] = torch.as_tensor(r[i])
+                self.buffer['o_next_%d' % i][idxs] = torch.from_numpy(o_next[i]).to(self.device)
     
     # sample the data from the replay buffer
     def sample(self, batch_size):

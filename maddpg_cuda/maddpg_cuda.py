@@ -1,9 +1,9 @@
 import torch
 import os
-from mdmaddpg.actor_critic import Actor, Critic
+from .actor_critic import Actor, Critic
 
 
-class MADDPG:
+class MADDPGCUDA:
     def __init__(self, args, agent_id):  # 因为不同的agent的obs、act维度可能不一样，所以神经网络不同,需要agent_id来区分
         self.args = args
         self.agent_id = agent_id
@@ -17,6 +17,17 @@ class MADDPG:
         self.actor_target_network = Actor(args, agent_id)
         self.critic_target_network = Critic(args)
 
+        if torch.cuda.is_available():
+            self.device = torch.device(0)
+        else:
+            self.device = torch.device('cpu')
+
+
+        self.max_action = torch.from_numpy(args.high_action).to(self.device)
+        self.actor_network.to(self.device)
+        self.critic_network.to(self.device)
+        self.actor_target_network.to(self.device)
+        self.critic_target_network.to(self.device)
         # load the weights into the target networks
         self.actor_target_network.load_state_dict(self.actor_network.state_dict())
         self.critic_target_network.load_state_dict(self.critic_network.state_dict())
@@ -53,12 +64,38 @@ class MADDPG:
         for target_param, param in zip(self.critic_target_network.parameters(), self.critic_network.parameters()):
             target_param.data.copy_((1 - self.args.tau) * target_param.data + self.args.tau * param.data)
 
+    # get action
+    def get_action(self, x):
+        return (self.max_action * self.actor_network(x.to(self.device))).squeeze(0)
+
+    def get_target_action(self, x):
+        return (self.max_action * self.actor_target_network(x.to(self.device))).squeeze(0)
+
+    def get_critic(self, o, u):
+        # u = u / self.max_action
+        for i in u:
+            i = i / self.max_action
+        return self.critic_network(o, u)
+    
+    def get_target_critic(self, o, u, detach=True):
+        for i in u:
+            i = i / self.max_action
+        if detach:
+            return self.critic_target_network(o, u).detach()
+        else:
+            return self.critic_target_network(o, u)
+
+
     # update the network
     def train(self, transitions, other_agents):
-        for key in transitions.keys():
-            transitions[key] = torch.tensor(transitions[key], dtype=torch.float32).clone().detach()
+        # for key in transitions.keys():
+        #     transitions[key] = torch.tensor(transitions[key], dtype=torch.float32).clone().detach()
         r = transitions['r_%d' % self.agent_id]  # 训练时只需要自己的reward
         o, u, o_next = [], [], []  # 用来装每个agent经验中的各项
+        # o = transitions['o_%d' % self.agent_id]
+        # u = transitions['u_%d' % self.agent_id]
+        # o_next = transitions['o_next_%d' % self.agent_id]
+    
         for agent_id in range(self.args.n_agents):
             o.append(transitions['o_%d' % agent_id])
             u.append(transitions['u_%d' % agent_id])
@@ -71,23 +108,25 @@ class MADDPG:
             index = 0
             for agent_id in range(self.args.n_agents):
                 if agent_id == self.agent_id:
-                    u_next.append(self.actor_target_network(o_next[agent_id]))
+                    # u_next.append(self.actor_target_network(o_next[agent_id]))
+                    u_next.append(self.get_target_action(o_next[agent_id]))
                 else:
                     # 因为传入的other_agents要比总数少一个，可能中间某个agent是当前agent，不能遍历去选择动作
-                    u_next.append(other_agents[index].policy.actor_target_network(o_next[agent_id]))
+                    # u_next.append(other_agents[index].policy.actor_target_network(o_next[agent_id]))
+                    u_next.append(other_agents[index].policy.get_target_action(o_next[agent_id]))
                     index += 1
-            q_next = self.critic_target_network(o_next, u_next).detach()
+            q_next = self.get_target_critic(o_next, u_next)
 
             target_q = (r.unsqueeze(1) + self.args.gamma * q_next).detach()
 
         # the q loss
-        q_value = self.critic_network(o, u)
+        q_value = self.get_critic(o, u)
         critic_loss = (target_q - q_value).pow(2).mean()
 
         # the actor loss
         # 重新选择联合动作中当前agent的动作，其他agent的动作不变
-        u[self.agent_id] = self.actor_network(o[self.agent_id])
-        actor_loss = - self.critic_network(o, u).mean()
+        u[self.agent_id] = self.get_action(o[self.agent_id])
+        actor_loss = - self.get_critic(o, u).mean()
         # if self.agent_id == 0:
         #     print('critic_loss is {}, actor_loss is {}'.format(critic_loss, actor_loss))
         # update the network
@@ -113,5 +152,6 @@ class MADDPG:
             os.makedirs(model_path)
         torch.save(self.actor_network.state_dict(), model_path + '/' + num + '_actor_params.pkl')
         torch.save(self.critic_network.state_dict(),  model_path + '/' + num + '_critic_params.pkl')
+
 
 

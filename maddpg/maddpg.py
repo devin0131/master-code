@@ -1,6 +1,6 @@
 import torch
 import os
-from maddpg.actor_critic import Actor, Critic
+from .actor_critic import Actor, Critic
 
 
 class MADDPG:

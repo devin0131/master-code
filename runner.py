@@ -29,7 +29,7 @@ class Runner:
 
     def run(self):
         returns = []
-        r = np.zeros(self.args.n_agents)
+        r = np.zeros(self.args.n_agents,dtype=np.float32)
         done = np.zeros(self.args.n_agents, dtype=bool)
         for time_step in tqdm(range(self.args.time_steps)):
             if time_step > 0 and time_step % self.args.evaluate_rate == 0:
@@ -41,11 +41,10 @@ class Runner:
                 plt.ylabel('average returns')
                 plt.savefig(self.save_path + '/plt.png', format='png')
 
-
-            ## 跑一个回合
+            # 跑一个回合
             self.env.reset()
             s = self.env.state().reshape(self.args.n_agents, -1)
-            while(True):
+            while (True):
                 # reset the environment
                 self.env.render_mode = None
                 u = []
