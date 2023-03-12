@@ -35,7 +35,7 @@ class Runner:
                 plt.figure()
                 plt.plot(range(len(returns)), returns)
                 plt.xlabel('episode * ' +
-                           str(self.args.evaluate_rate / self.episode_limit))
+                           str(self.args.evaluate_rate * self.episode_limit))
                 plt.ylabel('average returns')
                 plt.savefig(self.save_path + '/plt.png', format='png')
 

@@ -1,13 +1,17 @@
 import numpy as np
 from gymnasium.spaces.box import Box
-import seeding
+from . import seeding
 import json
+import os
+import pygame
 
 # UAC:
 # h 飞行高度
 # f 最大处理速度
 # theta 服务角
 # pos 坐标
+
+
 class UAV:
     # def __init__(self, h, p, fmax, theta):
     def __init__(self):
@@ -21,6 +25,8 @@ class UAV:
         self.asso_smd = dict()
         self.action = np.zeros(2)
         self.reward = 0
+        self.color = None
+        self.size = 0.1
 
     def add_asso(self, smdid):
         self.asso_smd[smdid] = 0
@@ -55,6 +61,8 @@ class SMD:
         self.b = 0
         self.asso = 100  # 选择卸载的无人机 , 如果该值==100,则本地计算
         self.ulocal = 0
+        self.color = None
+        self.size = 0.05
 
 
 class World:
@@ -69,6 +77,10 @@ class World:
         self.yside = 0
         self.uavs = None
         self.smds = None
+
+    @property
+    def entities(self):
+        return self.uavs + self.smds
 
     @staticmethod
     def dist(pos1, pos2):
@@ -94,10 +106,9 @@ class World:
 
 class Scenario:
     def __init__(self):
-        with open("umec.json") as json_file:
+        dir = os.path.dirname(__file__)
+        with open(dir + "/umec.json") as json_file:
             self.data = json.load(json_file)
-
-        
 
     def make_world(self, n_uav, n_smd):
         world = World()
@@ -105,7 +116,7 @@ class Scenario:
         world.n_smd = n_smd
         world.uavs = [UAV() for _ in range(n_uav)]
         world.smds = [SMD() for _ in range(n_smd)]
-        ## 根据配置文件初始化 uav和smd
+        # 根据配置文件初始化 uav和smd
         data = self.data
         for uavid, uav in enumerate(world.uavs):
             uav.id = uavid
@@ -113,10 +124,10 @@ class Scenario:
             uav.p = data["uavs"][uavid]['p']
             uav.fmax = data["uavs"][uavid]['fmax']
             uav.theta = data["uavs"][uavid]['theta']
-            uav.pos = np.array(data["uavs"][uavid]['pos']).copy()
+            uav.pos = np.array(data["uavs"][uavid]['pos'], dtype=np.float32)
         for smdid, smd in enumerate(world.smds):
             smd.id = smdid
-            smd.pos = data["smds"][smdid]['pos']
+            smd.pos = np.array(data["smds"][smdid]['pos'], dtype=np.float32)
             smd.lamda = data["smds"][smdid]['lamda']
             smd.F = data["smds"][smdid]['F']
             smd.f = data["smds"][smdid]['f']
@@ -124,7 +135,7 @@ class Scenario:
             smd.fmax = data["smds"][smdid]['fmax']
             smd.tmax = data["smds"][smdid]['tmax']
 
-        ## 根据配置文件配置world
+        # 根据配置文件配置world
         world.k = data['world']['k']
         world.wt = data['world']['wt']
         world.we = data['world']['we']
@@ -142,36 +153,48 @@ class Scenario:
     def off_utility(self, world: World, smd: SMD):
         fuav = world.uavs[smd.asso].comp_res[smd.id]
         tcomp = smd.f / fuav
-        tcommu = smd.F / world.rate(smd.b, smd.pos, world.uavs[smd.asso].pos, world.uavs[smd.asso].h)
+        tcommu = smd.F / \
+            world.rate(smd.b, smd.pos,
+                       world.uavs[smd.asso].pos, world.uavs[smd.asso].h)
         uoff = (world.we * (-world.ecomp(fuav, tcomp) - world.e_commu(smd.p,
                 tcommu))) + (world.wt * (smd.tmax - tcommu - tcomp))
         return uoff
 
-    ## 重置坐标
+    # 重置坐标
     # world 重置world中的坐标
     # 重置时使用的种子
     # 是否使用配置文件中的坐标reset
     def reset_world(self, world: World, np_random, config_pos=False):
-        ## 无人机只会初始化在一开始的位置
+
+        for _, agent in enumerate(world.uavs):
+            agent.color = np.array([0.35, 0.35, 0.85])
+        # random properties for landmarks
+        for _, landmark in enumerate(world.smds):
+            landmark.color = np.array([0.25, 0.25, 0.25])
+        # 无人机只会初始化在一开始的位置
         for i, uav in enumerate(world.uavs):
-            uav.pos = np.array(self.data['uavs'][i]['pos'])
+            uav.pos = np.array(self.data['uavs'][i]['pos'], dtype=np.float32)
         if config_pos is True:
             for i, smd in enumerate(world.smds):
-                smd.pos = np.array(self.data['smds'][i]['pos'])
+                smd.pos = np.array(
+                    self.data['smds'][i]['pos'], dtype=np.float32)
         else:
             for i, smd in enumerate(world.smds):
                 smd.pos = np_random.uniform(-world.xside/2, world.yside/2, 2)
 
-            
-            
-
+        ##
+        # print("reset :")
+        # for uav in world.uavs:
+        #     print("uav:{}, pos:{}".format(uav.id, uav.pos))
+        # for smd in world.smds:
+        #     print("smd:{}, pos:{}".format(smd.id, smd.pos))
 
     def local_reward(self, agent, world):
         rew = 0
         # for smdid in agent.asso_smd:
         #     rew += self.off_utility(world, world.smds[smdid])
         dist = np.linalg.norm(agent.pos - world.smds[agent.id].pos)
-        rew = -dist
+        rew = 5-dist
         return rew
 
     def global_reward(self, world: World):
@@ -182,20 +205,21 @@ class Scenario:
         return rew
 
     def observation(self, uav: UAV, world: World):
-        ## 每个用户的 lamda，任务大小，所需计算量，时间约束， 最大计算能力， 坐标 1 + 1 + 1 + 1 + 1 + 2 = 7
-        ## 无人机自己的坐标 高度，最大计算资源 2 + 1 + 1 = 4
+        # 每个用户的 lamda，任务大小，所需计算量，时间约束， 最大计算能力， 坐标 1 + 1 + 1 + 1 + 1 + 2 = 7
+        # 无人机自己的坐标 高度，最大计算资源 2 + 1 + 1 = 4
         ob = np.zeros(world.n_smd * 7)
         for i, smd in enumerate(world.smds):
-            ob[i*7:(i+1)*7] = np.concatenate((np.array([smd.lamda, smd.F, smd.f, smd.tmax, smd.fmax]), smd.pos))
-        ob = np.concatenate((ob,uav.pos, np.array([uav.h, uav.fmax])))
-        
+            ob[i*7:(i+1)*7] = np.concatenate((np.array([smd.lamda,
+                                                        smd.F, smd.f, smd.tmax, smd.fmax]), smd.pos))
+        ob = np.concatenate((ob, uav.pos, np.array([uav.h, uav.fmax])))
+
         return ob
 
 
 class env:
-    def __init__(self, n_uav = 3, n_smd = 3, local_ratio = None, max_cycles = 25):
+    def __init__(self, n_uav=3, n_smd=3, local_ratio=None, max_cycles=100):
         self.uav_selection = 0
-
+        self.renderOn = True
         self.steps = 0
 
         self.max_cycles = max_cycles
@@ -204,7 +228,12 @@ class env:
         self.world = self.scenario.make_world(n_uav, n_smd)
         self.scenario.reset_world(self.world, self.np_random)
 
-        self.rewards = {uavid : 0.0 for uavid in self.world.uavs}
+        self.width = 700
+        self.height = 700
+        pygame.init()
+        self.screen = pygame.Surface([self.width, self.height])
+        self.screen = pygame.display.set_mode(self.screen.get_size())
+        self.rewards = {uavid: 0.0 for uavid in self.world.uavs}
         self.uavs = [uav.id for uav in self.world.uavs]
         self.agents = self.uavs
         self.truncations = {uavid: False for uavid in self.uavs}
@@ -238,7 +267,6 @@ class env:
         )
         self.current_actions = [None] * self.num_agents
 
-
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
 
@@ -271,20 +299,20 @@ class env:
 
         self.current_actions = [None] * self.num_agents
 
-    # 在这个函数运行世界一步的操作 
-    # calculate reward 
+    # 在这个函数运行世界一步的操作
+    # calculate reward
     def _execute_world_step(self):
         for uav in self.world.uavs:
-            ## 可以的话对action进行必要的检查
-            self._set_action(self.current_actions[uav.id],uav)
+            # 可以的话对action进行必要的检查
+            self._set_action(self.current_actions[uav.id], uav)
         self.world.step()
 
         global_reward = 0.0
         if self.local_ratio is not None:
-            global_reward = float(self.scenario.global_utility(self.world))
-        
+            global_reward = float(self.scenario.global_reward(self.world))
+
         for uav in self.world.uavs:
-            uav_reward = float(self.scenario.local_utility(uav, self.world))
+            uav_reward = float(self.scenario.local_reward(uav, self.world))
             if self.local_ratio is not None:
                 reward = (
                     global_reward * (1 - self.local_ratio)
@@ -292,19 +320,18 @@ class env:
                 )
             else:
                 reward = uav_reward
-        
+
             self.rewards[uav.id] = reward
         # for uav in self.world.uavs:
         #     self.rewards[uav.id] = 1
 
-
     # 为agent添加运行action的动作
+
     def _set_action(self, action, uav):
         uav.action = action.copy()
 
-
-
     # action: 包含每个无人机的动作，但是按照env的写法，这个action是某一个无人机的action
+
     def step(self, action):
         self.current_actions[self.uav_selection] = action
         self.uav_selection = (self.uav_selection + 1) % self.world.n_uav
@@ -314,4 +341,72 @@ class env:
             if self.steps >= self.max_cycles:
                 for a in self.agents:
                     self.truncations[a] = True
-        
+        self.render()
+
+    def render(self):
+        if self.renderOn:
+            self.draw()
+            pygame.display.flip()
+
+    def draw(self):
+        # clear screen
+        self.screen.fill((255, 255, 255))
+
+        # update bounds to center around agent
+        all_poses = [entity.pos for entity in self.world.entities]
+        cam_range = np.max(np.abs(np.array(all_poses)))
+
+        # update geometry and text positions
+        text_line = 0
+        for e, entity in enumerate(self.world.entities):
+            # geometry
+            x, y = entity.pos
+            y *= (
+                -1
+            )  # this makes the display mimic the old pyglet setup (ie. flips image)
+            x = (
+                (x / cam_range) * self.width // 2 * 0.9
+            )  # the .9 is just to keep entities from appearing "too" out-of-bounds
+            y = (y / cam_range) * self.height // 2 * 0.9
+            x += self.width // 2
+            y += self.height // 2
+            pygame.draw.circle(
+                self.screen, entity.color * 200, (x, y), entity.size * 350
+            )  # 350 is an arbitrary scale factor to get pygame to render similar sizes as pyglet
+            pygame.draw.circle(
+                self.screen, (0, 0, 0), (x, y), entity.size * 350, 1
+            )  # borders
+            assert (
+                0 < x < self.width and 0 < y < self.height
+            ), f"Coordinates {(x, y)} are out of bounds."
+
+            # text
+            # if isinstance(entity, Agent):
+            #     if entity.silent:
+            #         continue
+            #     if np.all(entity.state.c == 0):
+            #         word = "_"
+            #     elif self.continuous_actions:
+            #         word = (
+            #             "[" +
+            #             ",".join(
+            #                 [f"{comm:.2f}" for comm in entity.state.c]) + "]"
+            #         )
+            #     else:
+            #         word = alphabet[np.argmax(entity.state.c)]
+            #
+            #     message = entity.name + " sends " + word + "   "
+            #     message_x_pos = self.width * 0.05
+            #     message_y_pos = self.height * 0.95 - \
+            #         (self.height * 0.05 * text_line)
+            #     self.game_font.render_to(
+            #         self.screen, (message_x_pos,
+            #                       message_y_pos), message, (0, 0, 0)
+            #     )
+            #     text_line += 1
+
+    def close(self):
+        if self.renderOn:
+            pygame.event.pump()
+            pygame.display.quit()
+            self.renderOn = False
