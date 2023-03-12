@@ -1,6 +1,7 @@
 import torch
 import os
 from .actor_critic import Actor, Critic
+from .replay_buffer import Buffer
 
 
 class MADDPGCUDA:
@@ -21,7 +22,6 @@ class MADDPGCUDA:
             self.device = torch.device(0)
         else:
             self.device = torch.device('cpu')
-
 
         self.max_action = torch.from_numpy(args.high_action).to(self.device)
         self.actor_network.to(self.device)
@@ -138,8 +138,8 @@ class MADDPGCUDA:
         self.critic_optim.step()
 
         self._soft_update_target_network()
-        if self.train_step > 0 and self.train_step % self.args.save_rate == 0:
-            self.save_model(self.train_step)
+        # if self.train_step > 0 and self.train_step % self.args.save_rate == 0:
+        #     self.save_model(self.train_step)
         self.train_step += 1
 
     def save_model(self, train_step):
