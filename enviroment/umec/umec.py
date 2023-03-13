@@ -1,9 +1,13 @@
 import numpy as np
 from gymnasium.spaces.box import Box
 from . import seeding
+from . import simulated_annealing
+from . import ball_box
+from . import channel
 import json
 import os
 import pygame
+import logging
 
 # UAC:
 # h 飞行高度
@@ -28,13 +32,19 @@ class UAV:
         self.color = None
         self.size = 0.1
 
+    def reset(self):
+        self.n_asso = 0
+        self.asso_smd = dict()
+
     def add_asso(self, smdid):
         self.asso_smd[smdid] = 0
         self.n_asso += 1
 
     def distribute_asso(self):
-        self.f = dict()
+        if self.n_asso == 0:
+            return
         res = self.fmax / self.n_asso
+        # print(res, self.fmax, self.n_asso)
         for key in self.asso_smd:
             self.asso_smd[key] = res
 
@@ -50,7 +60,7 @@ class UAV:
 class SMD:
     # def __init__(self, lamda, F, f, p, fmax, tmax, smd_id):
     def __init__(self):
-        self.id = 0
+        self.id = None
         self.lamda = 0
         self.pos = np.zeros(2)
         self.F = 0  # 文件大小
@@ -59,7 +69,7 @@ class SMD:
         self.fmax = 0  # 本机计算能力
         self.tmax = 0
         self.b = 0
-        self.asso = 100  # 选择卸载的无人机 , 如果该值==100,则本地计算
+        self.asso = -1  # 选择卸载的无人机 , 如果该值==-1,则本地计算
         self.ulocal = 0
         self.color = None
         self.size = 0.05
@@ -77,20 +87,15 @@ class World:
         self.yside = 0
         self.uavs = None
         self.smds = None
+        self.ch = channel.Channel()
 
     @property
     def entities(self):
         return self.uavs + self.smds
 
-    @staticmethod
-    def dist(pos1, pos2):
-        return np.linalg.norm(pos1-pos2)
-
-    def sinr(self, pos1, pos2):
-        pass
-
-    def rate(self, b, pos1, pos2, h):
-        pass
+    def rate(self, p, b, pos1, pos2, h):
+        dist = np.sqrt(np.linalg.norm(pos1-pos2)**2 + h**2)
+        return self.ch.rate(p, dist, b)
 
     def e_comp(self, f, t):
         return self.k * f * t
@@ -109,6 +114,7 @@ class Scenario:
         dir = os.path.dirname(__file__)
         with open(dir + "/umec.json") as json_file:
             self.data = json.load(json_file)
+        self.optimize = simulated_annealing
 
     def make_world(self, n_uav, n_smd):
         world = World()
@@ -119,21 +125,23 @@ class Scenario:
         # 根据配置文件初始化 uav和smd
         data = self.data
         for uavid, uav in enumerate(world.uavs):
+            uavdata = data["uavs"][data["uav_index"][uavid]]
             uav.id = uavid
-            uav.h = data["uavs"][uavid]['h']
-            uav.p = data["uavs"][uavid]['p']
-            uav.fmax = data["uavs"][uavid]['fmax']
-            uav.theta = data["uavs"][uavid]['theta']
-            uav.pos = np.array(data["uavs"][uavid]['pos'], dtype=np.float32)
+            uav.h = uavdata['h']
+            uav.p = uavdata['p']
+            uav.fmax = uavdata['fmax']
+            uav.theta = uavdata['theta']
+            uav.pos = np.array(uavdata['pos'], dtype=np.float32)
         for smdid, smd in enumerate(world.smds):
+            smddata = data["smds"][data["smd_index"][smdid]]
             smd.id = smdid
-            smd.pos = np.array(data["smds"][smdid]['pos'], dtype=np.float32)
-            smd.lamda = data["smds"][smdid]['lamda']
-            smd.F = data["smds"][smdid]['F']
-            smd.f = data["smds"][smdid]['f']
-            smd.p = data["smds"][smdid]['p']
-            smd.fmax = data["smds"][smdid]['fmax']
-            smd.tmax = data["smds"][smdid]['tmax']
+            smd.pos = np.array(smddata['pos'], dtype=np.float32)
+            smd.lamda = smddata['lamda']
+            smd.F = smddata['F']
+            smd.f = smddata['f']
+            smd.p = smddata['p']
+            smd.fmax = smddata['fmax']
+            smd.tmax = smddata['tmax']
 
         # 根据配置文件配置world
         world.k = data['world']['k']
@@ -144,26 +152,109 @@ class Scenario:
         world.yside = data['world']['yside']
         return world
 
+    # 计算SMD的本地计算效用
     def local_utility(self, world: World, smd: SMD) -> float:
         tlocal = smd.f / smd.fmax
-        ulocal = (- world.we * world.ecomp(smd.fmax, tlocal)) + \
+        ulocal = smd.lamda * (- world.we * world.e_comp(smd.fmax, tlocal)) + \
             world.wt * (smd.tmax - tlocal)
         return ulocal
 
+    # 计算SMD的卸载效用
     def off_utility(self, world: World, smd: SMD):
-        fuav = world.uavs[smd.asso].comp_res[smd.id]
+        fuav = world.uavs[smd.asso].comp_res(smd.id)
         tcomp = smd.f / fuav
         tcommu = smd.F / \
-            world.rate(smd.b, smd.pos,
+            world.rate(smd.p, smd.b, smd.pos,
                        world.uavs[smd.asso].pos, world.uavs[smd.asso].h)
-        uoff = (world.we * (-world.ecomp(fuav, tcomp) - world.e_commu(smd.p,
-                tcommu))) + (world.wt * (smd.tmax - tcommu - tcomp))
+        uoff = smd.lamda * ((world.we * (-world.e_comp(fuav, tcomp) - world.e_commu(
+            smd.p, tcommu))) + (world.wt * (smd.tmax - tcommu - tcomp)))
+        # logging.debug("smd:{}, uoff:{}, tcomp:{}, tcommu:{}, fuav:{}".format(smd.id, uoff, tcomp, tcommu, fuav))
         return uoff
+
+    # solution 应该包括smd的卸载选择，以及带宽
+    # solution = (asso, band)
+    # asso = (len(smd),)
+    # band = (len(smd),)
+    # st.
+    # asso[*] = {-1, ..., max(uavs)-1}, 整型
+    # band = {b1,b2,b3,...,bn}, sum(band) = b
+    def system_utility(self, world: World, solution):
+        asso, band = solution
+        utility = 0
+        for smd in world.smds:
+            smd.asso = asso[smd.id]
+            world.uavs[smd.asso].add_asso(smd.id)
+            smd.b = band[smd.id]
+        for uav in world.uavs:
+            uav.distribute_asso()
+        for smd in world.smds:
+            if smd.asso == -1:
+                utility += self.local_utility(world, smd)
+            else:
+                utility += self.off_utility(world, smd)
+        for uav in world.uavs:
+            uav.reset()
+        return utility
+
+    def solution_result(self, world: World, solution):
+        asso, band = solution
+        for smd in world.smds:
+            smd.asso = asso[smd.id]
+            world.uavs[smd.asso].add_asso(smd.id)
+            smd.b = band[smd.id]
+        for uav in world.uavs:
+            uav.distribute_asso()
+        for smd in world.smds:
+            if smd.asso == -1:
+                logging.info("本地效用:{}".format_map(
+                    self.local_utility(world, smd)))
+            else:
+                fuav = world.uavs[smd.asso].comp_res(smd.id)
+                tcomp = smd.f / fuav
+                tcommu = smd.F / \
+                    world.rate(smd.p, smd.b, smd.pos,
+                               world.uavs[smd.asso].pos, world.uavs[smd.asso].h)
+                uoff = smd.lamda * ((world.we * (-world.e_comp(fuav, tcomp) - world.e_commu(
+                    smd.p, tcommu))) + (world.wt * (smd.tmax - tcommu - tcomp)))
+                logging.info("卸载效用:{}, fs:{}, t计算:{}, t通信:{}, t效用:{}, e效用:{}".format(uoff, fuav, tcomp, tcommu, smd.tmax - tcommu - tcomp, -world.e_comp(fuav, tcomp) - world.e_commu(
+                    smd.p, tcommu)))
+        for uav in world.uavs:
+            uav.reset()
+
+    # 系统花费 = -系统效用
+
+    def system_cost(self, world: World, solution):
+        return -self.system_utility(world, solution)
+
+    def get_avalible_solution(self, world: World, disable_loca: bool = False):
+        if disable_loca is True:
+            asso = np.random.randint(0, world.n_uav, world.n_smd)
+        else:
+            asso = np.random.randint(-1, world.n_uav, world.n_smd)
+        band = np.zeros(world.n_smd, dtype=int)
+        n_box = asso[asso != -1].size
+        if n_box == 0:
+            return (asso, band)
+        else:
+            result = ball_box.random_distribution(world.B, n_box)
+            if result is None:
+                raise Exception("Band not avaliable")
+                return None
+            else:
+                index = 0
+                for smdid in range(world.n_smd):
+                    if asso[smdid] != -1:
+                        band[smdid] = result[index]
+                        index += 1
+                    else:
+                        band[smdid] = 0
+                return (asso, band)
 
     # 重置坐标
     # world 重置world中的坐标
     # 重置时使用的种子
     # 是否使用配置文件中的坐标reset
+
     def reset_world(self, world: World, np_random, config_pos=False):
 
         for _, agent in enumerate(world.uavs):
@@ -174,6 +265,7 @@ class Scenario:
         # 无人机只会初始化在一开始的位置
         for i, uav in enumerate(world.uavs):
             uav.pos = np.array(self.data['uavs'][i]['pos'], dtype=np.float32)
+            uav.reset()
         if config_pos is True:
             for i, smd in enumerate(world.smds):
                 smd.pos = np.array(
@@ -198,10 +290,20 @@ class Scenario:
         return rew
 
     def global_reward(self, world: World):
+        def cost_function(solution):
+            return self.system_cost(world, solution)
+
+        def random_solution():
+            return self.get_avalible_solution(world, True)
         rew = 0
+        best_solution, best_cost = self.optimize.simulated_annealing(
+            cost_function, random_solution, 100, 0.95, 10)
         # for smd in world.smds:
         #     if smd.asso == 100:
         #         rew += self.cal_utility(world, smd)
+        # logging.info("solution:{}, cost:{}".format(best_solution, best_cost))
+        self.solution_result(world, best_solution)
+        rew = - best_cost
         return rew
 
     def observation(self, uav: UAV, world: World):
@@ -250,7 +352,7 @@ class env:
             obs_dim = len(self.scenario.observation(uav, self.world))
             state_dim += obs_dim
             self.action_spaces[uav.id] = Box(
-                low=-1, high=1, shape=(space_dim,)
+                low=-8, high=8, shape=(space_dim,)
             )
             self.observation_spaces[uav.id] = Box(
                 low=-np.float32(np.inf),
@@ -357,7 +459,7 @@ class env:
         cam_range = np.max(np.abs(np.array(all_poses)))
 
         # update geometry and text positions
-        text_line = 0
+        # text_line = 0
         for e, entity in enumerate(self.world.entities):
             # geometry
             x, y = entity.pos

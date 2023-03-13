@@ -1,8 +1,12 @@
 import math
 import random
+import logging
 
 
-def simulated_annealing(cost_function, initial_solution, temperature, cooling_rate, stopping_temperature):
+## cost 越小越好
+## 需要自己实现一个 生成随机解决方案的函数
+## 需要写一个， 可以计算系统效用的cost_function, 但是可以反过来
+def simulated_annealing(cost_function, avalible_solution, temperature, cooling_rate, stopping_temperature):
     """
     模拟退火算法函数
 
@@ -16,14 +20,15 @@ def simulated_annealing(cost_function, initial_solution, temperature, cooling_ra
     返回：
     最优解决方案和对应的代价。
     """
-    current_solution = initial_solution
+    current_solution = avalible_solution()
     best_solution = current_solution
     current_cost = cost_function(current_solution)
     best_cost = current_cost
 
     while temperature > stopping_temperature:
         # 生成随机解决方案
-        candidate_solution = current_solution + random.uniform(-1, 1)
+        # candidate_solution = current_solution + random.uniform(-1, 1)
+        candidate_solution = avalible_solution()
         candidate_cost = cost_function(candidate_solution)
 
         # 计算接受概率
@@ -42,5 +47,5 @@ def simulated_annealing(cost_function, initial_solution, temperature, cooling_ra
 
         # 降温
         temperature *= cooling_rate
-
+    # logging.info("solution:{}, cost:{}".format(best_solution, best_cost))
     return best_solution, best_cost

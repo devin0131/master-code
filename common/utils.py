@@ -1,11 +1,10 @@
+from enviroment import umec
+from enviroment import origin_mpe
 import numpy as np
 import inspect
 import functools
 import sys
 sys.path.append("..")
-from enviroment import origin_mpe
-from enviroment import umec
-
 
 
 def store_args(method):
@@ -49,7 +48,8 @@ def make_env(args):
     # env = MultiAgentEnv(world)
 
     # env = origin_mpe(args, 3)
-    env = umec.env(max_cycles=args.max_episode_len)
+    env = umec.env(max_cycles=args.max_episode_len,
+                   local_ratio=0, n_uav=2, n_smd=2)
 
     # args.n_players = env.n  # 包含敌人的所有玩家个数
     # args.n_agents = env.n - args.num_adversaries  # 需要操控的玩家个数，虽然敌人也可以控制，但是双方都学习的话需要不同的算法
