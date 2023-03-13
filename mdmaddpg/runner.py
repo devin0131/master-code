@@ -5,6 +5,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from .replay_buffer import Buffer
+import pygame
 
 
 class Runner:
@@ -30,6 +31,7 @@ class Runner:
     def run(self):
         returns = []
         for time_step in tqdm(range(self.args.time_steps)):
+            pygame.event.get()
             if time_step > 0 and time_step % self.args.evaluate_rate == 0:
                 returns.append(self.evaluate())
                 plt.figure()
@@ -105,5 +107,5 @@ class Runner:
                 rewards += r.sum()
                 s = s_next
             returns.append(rewards)
-            print('Returns is', rewards)
+        #     print('Returns is', rewards)
         return sum(returns) / self.args.evaluate_episodes

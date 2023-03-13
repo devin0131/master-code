@@ -35,6 +35,7 @@ class UAV:
     def reset(self):
         self.n_asso = 0
         self.asso_smd = dict()
+        self.reward = 0
 
     def add_asso(self, smdid):
         self.asso_smd[smdid] = 0
@@ -285,25 +286,33 @@ class Scenario:
         rew = 0
         # for smdid in agent.asso_smd:
         #     rew += self.off_utility(world, world.smds[smdid])
-        dist = np.linalg.norm(agent.pos - world.smds[agent.id].pos)
-        rew = 5-dist
+        # dist = np.linalg.norm(agent.pos - world.smds[agent.id].pos)
+        # rew = -dist
+
+        dist = [np.linalg.norm(agent.pos - smd.pos) for smd in world.smds]
+        rew = - np.min(np.array(dist))
         return rew
 
     def global_reward(self, world: World):
-        def cost_function(solution):
-            return self.system_cost(world, solution)
-
-        def random_solution():
-            return self.get_avalible_solution(world, True)
+        # def cost_function(solution):
+        #     return self.system_cost(world, solution)
+        #
+        # def random_solution():
+        #     return self.get_avalible_solution(world, True)
+        # rew = 0
+        # best_solution, best_cost = self.optimize.simulated_annealing(
+        #     cost_function, random_solution, 100, 0.95, 10)
+        # # for smd in world.smds:
+        # #     if smd.asso == 100:
+        # #         rew += self.cal_utility(world, smd)
+        # # logging.info("solution:{}, cost:{}".format(best_solution, best_cost))
+        # self.solution_result(world, best_solution)
+        # rew = - best_cost
         rew = 0
-        best_solution, best_cost = self.optimize.simulated_annealing(
-            cost_function, random_solution, 100, 0.95, 10)
-        # for smd in world.smds:
-        #     if smd.asso == 100:
-        #         rew += self.cal_utility(world, smd)
-        # logging.info("solution:{}, cost:{}".format(best_solution, best_cost))
-        self.solution_result(world, best_solution)
-        rew = - best_cost
+
+        for smd in world.smds:
+            dist = [np.linalg.norm(smd.pos - uav.pos) for uav in world.uavs]
+            rew -= np.min(np.array(dist))
         return rew
 
     def observation(self, uav: UAV, world: World):

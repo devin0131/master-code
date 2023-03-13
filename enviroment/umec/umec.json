@@ -1,6 +1,6 @@
 {
-  "uav_index":[0,0],
-  "smd_index":[0,0],
+  "uav_index":[0,0,0],
+  "smd_index":[0,0,0],
   "uavs": [
     {
       "h": 32,
