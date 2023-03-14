@@ -289,8 +289,11 @@ class Scenario:
         # dist = np.linalg.norm(agent.pos - world.smds[agent.id].pos)
         # rew = -dist
 
-        dist = [np.linalg.norm(agent.pos - smd.pos) for smd in world.smds]
-        rew = - np.min(np.array(dist))
+        def d(pos1, pos2, h):
+            return np.sqrt(np.linalg.norm(pos1-pos2)**2 + h**2)
+        dist = [world.ch.rate(smd.p, d(smd.pos, agent.pos, agent.h), 1)
+                for smd in world.smds]
+        rew = np.sum(np.array(dist))
         return rew
 
     def global_reward(self, world: World):
@@ -311,8 +314,12 @@ class Scenario:
         rew = 0
 
         for smd in world.smds:
-            dist = [np.linalg.norm(smd.pos - uav.pos) for uav in world.uavs]
-            rew -= np.min(np.array(dist))
+            # dist = [np.linalg.norm(smd.pos - uav.pos) for uav in world.uavs]
+            def d(pos1, pos2, h):
+                return np.sqrt(np.linalg.norm(pos1-pos2)**2 + h**2)
+            rate = [world.ch.rate(smd.p, d(smd.pos, uav.pos, uav.h), 1)
+                    for uav in world.uavs]
+            rew += np.sum(np.array(rate))
         return rew
 
     def observation(self, uav: UAV, world: World):

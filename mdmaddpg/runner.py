@@ -34,6 +34,7 @@ class Runner:
             pygame.event.get()
             if time_step > 0 and time_step % self.args.evaluate_rate == 0:
                 returns.append(self.evaluate())
+                np.save(self.save_path + '/returns.pkl', returns)
                 plt.figure()
                 plt.plot(range(len(returns)), returns)
                 plt.xlabel('episode * ' +
@@ -82,7 +83,6 @@ class Runner:
                         agent.learn(transitions, other_agents)
                 self.noise = max(0.05, self.noise - 0.0000005)
                 self.epsilon = max(0.05, self.epsilon - 0.0000005)
-                # np.save(self.save_path + '/returns.pkl', returns)
                 if done.any():
                     break
 

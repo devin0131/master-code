@@ -42,9 +42,9 @@ class MDMADDPG:
         self.model_path = self.args.save_dir + '/' + self.args.scenario_name
         if not os.path.exists(self.model_path):
             os.mkdir(self.model_path)
-        # self.model_path = self.model_path + '/' + 'agent_%d' % agent_id
-        # if not os.path.exists(self.model_path):
-        #     os.mkdir(self.model_path)
+        self.model_path = self.model_path + '/' + 'agent_%d' % agent_id
+        if not os.path.exists(self.model_path):
+            os.mkdir(self.model_path)
 
         # 加载模型
         # if os.path.exists(self.model_path + '/actor_params.pkl'):
@@ -143,8 +143,8 @@ class MDMADDPG:
         self.critic_optim.step()
 
         self._soft_update_target_network()
-        # if self.train_step > 0 and self.train_step % self.args.save_rate == 0:
-        #     self.save_model(self.train_step)
+        if self.train_step > 0 and self.train_step % self.args.save_rate == 0:
+            self.save_model(self.train_step)
         self.train_step += 1
 
     def save_model(self, train_step):
